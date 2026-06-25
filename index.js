@@ -65,6 +65,22 @@ function isGroupChat(chat) {
     return chat.isGroup;
 }
 
+function extractMentionedUser(message) {
+    if (message.mentionedIds && message.mentionedIds.length > 0) {
+        return message.mentionedIds[0];
+    }
+    const match = message.body.match(/@?(\d{10,12})/);
+    if (match) {
+        return match[1] + '@c.us';
+    }
+    return null;
+}
+
+function getTime() {
+    const now = new Date();
+    return now.toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem' });
+}
+
 // ============================================================
 // ====== אתחול הבוט ======
 // ============================================================
@@ -135,11 +151,10 @@ client.on('message', async (message) => {
         const senderId = message.author || message.from;
         const prefix = CONFIG.PREFIX;
         
-        if (isAdmin(senderId)) {
-            return;
-        }
-        
-        if (isGroupChat(chat) && !msgBody.startsWith(prefix)) {
+        // ============================================================
+        // ====== 1. אנטי-ספאם (רק בקבוצות, לא למנהלים) ======
+        // ============================================================
+        if (isGroupChat(chat) && !isAdmin(senderId) && !msgBody.startsWith(prefix)) {
             const groupId = chat.id._serialized;
             const spamCheck = checkSpam(senderId, groupId);
             
@@ -174,6 +189,221 @@ client.on('message', async (message) => {
             }
         }
         
+        // ============================================================
+        // ====== 2. פקודות כלליות (לכולם) ======
+        // ============================================================
+        if (msgBody === `${prefix}help`) {
+            await message.reply(
+                `📋 *תפריט עזרה - הבוט החכם*\n\n` +
+                `🔹 *פקודות כלליות:*\n` +
+                `${prefix}help - תפריט עזרה\n` +
+                `${prefix}hi - שלום 👋\n` +
+                `${prefix}how - מה איתך?\n` +
+                `${prefix}time - שעה נוכחית\n` +
+                `${prefix}about - מידע על הבוט\n` +
+                `${prefix}ping - בדיקת זמינות\n\n` +
+                `🔸 *פקודות ניהול (למנהלים בלבד):*\n` +
+                `${prefix}close - סגירת הקבוצה 🔒\n` +
+                `${prefix}open - פתיחת הקבוצה 🔓\n` +
+                `${prefix}remove @שם - הסרת משתמש\n` +
+                `${prefix}promote @שם - הפיכת משתמש לאדמין\n` +
+                `${prefix}demote @שם - הורדת משתמש מאדמין\n` +
+                `${prefix}invite - קישור הזמנה לקבוצה\n` +
+                `${prefix}spamstats - סטטיסטיקות ספאם\n` +
+                `${prefix}clearspam - איפוס מוניטור ספאם`
+            );
+            return;
+        }
+        
+        if (msgBody === `${prefix}hi`) {
+            const responses = [
+                '👋 היי! מה נשמע?',
+                '🤗 שלום! איך עובר היום?',
+                '😊 היי חבר! שמח לראות אותך.',
+                '🌟 שלום! מה שלומך?'
+            ];
+            await message.reply(responses[Math.floor(Math.random() * responses.length)]);
+            return;
+        }
+        
+        if (msgBody === `${prefix}how`) {
+            const responses = [
+                '😊 אני בסדר תודה! איך אתה?',
+                '🤖 אני מרגיש מעולה! מריץ הודעות כמו שצריך.',
+                '💪 הכל טוב! בוט חזק ומתפקד.',
+                '🌟 מצוין! תודה ששאלת.'
+            ];
+            await message.reply(responses[Math.floor(Math.random() * responses.length)]);
+            return;
+        }
+        
+        if (msgBody === `${prefix}time`) {
+            await message.reply(`🕐 *שעה נוכחית:* ${getTime()}`);
+            return;
+        }
+        
+        if (msgBody === `${prefix}about`) {
+            await message.reply(
+                `🤖 *בוט ניהול חכם*\n\n` +
+                `📌 *גרסה:* 2.0\n` +
+                `🛡️ *אנטי-ספאם:* 5 הודעות ב-20 שניות → 3 אזהרות → הרחקה\n` +
+                `👥 *מנהלים:* ${CONFIG.ADMINS.length} מוגדרים\n` +
+                `🔒 *ניהול קבוצות:* סגירה/פתיחה/הסרה/קידום\n` +
+                `📱 *פותח:* שגיב\n` +
+                `⚡ *סטטוס:* פעיל ומתפקד!`
+            );
+            return;
+        }
+        
+        if (msgBody === `${prefix}ping`) {
+            const start = Date.now();
+            await message.reply('🏓 Pong!');
+            const end = Date.now();
+            await message.reply(`⏱️ זמן תגובה: ${end - start}ms`);
+            return;
+        }
+        
+        // ============================================================
+        // ====== 3. פקודות ניהול (למנהלים בלבד) ======
+        // ============================================================
+        if (!isAdmin(senderId)) {
+            // אם המשתמש לא מנהל ושלח פקודה לא מוכרת
+            if (msgBody.startsWith(prefix)) {
+                await message.reply('❌ פקודה לא מוכרת או שאין לך הרשאה. שלח !help לתפריט.');
+            }
+            return;
+        }
+        
+        // 3.1 סגירת/פתיחת קבוצה
+        if (msgBody === `${prefix}close` || msgBody === `${prefix}open`) {
+            if (!isGroupChat(chat)) {
+                await message.reply('⚠️ הפקודה הזו עובדת רק בקבוצות.');
+                return;
+            }
+            
+            const isClosing = msgBody === `${prefix}close`;
+            await chat.setMessagesAdminsOnly(isClosing);
+            await message.reply(`✅ הקבוצה ${isClosing ? '🔒 נסגרה' : '🔓 נפתחה'}. ${isClosing ? 'רק אדמינים יכולים לשלוח.' : 'כולם יכולים לשלוח.'}`);
+            return;
+        }
+        
+        // 3.2 הסרת משתמש
+        if (msgBody.startsWith(`${prefix}remove`)) {
+            if (!isGroupChat(chat)) {
+                await message.reply('⚠️ הפקודה הזו עובדת רק בקבוצות.');
+                return;
+            }
+            
+            const targetId = extractMentionedUser(message);
+            if (!targetId) {
+                await message.reply('⚠️ יש לציין משתמש להסרה. דוגמה: !remove @0521234567');
+                return;
+            }
+            
+            try {
+                await chat.removeParticipants([targetId]);
+                await message.reply(`✅ המשתמש הוסר מהקבוצה.`);
+                const groupId = chat.id._serialized;
+                warningTracker.delete(`${groupId}_${targetId}`);
+            } catch (error) {
+                await message.reply(`❌ שגיאה בהסרה: ${error.message}`);
+            }
+            return;
+        }
+        
+        // 3.3 הפיכת משתמש לאדמין
+        if (msgBody.startsWith(`${prefix}promote`)) {
+            if (!isGroupChat(chat)) {
+                await message.reply('⚠️ הפקודה הזו עובדת רק בקבוצות.');
+                return;
+            }
+            
+            const targetId = extractMentionedUser(message);
+            if (!targetId) {
+                await message.reply('⚠️ יש לציין משתמש לקידום. דוגמה: !promote @0521234567');
+                return;
+            }
+            
+            try {
+                await chat.promoteParticipants([targetId]);
+                await message.reply(`✅ המשתמש הפך לאדמין.`);
+            } catch (error) {
+                await message.reply(`❌ שגיאה בקידום: ${error.message}`);
+            }
+            return;
+        }
+        
+        // 3.4 הורדת משתמש מאדמין
+        if (msgBody.startsWith(`${prefix}demote`)) {
+            if (!isGroupChat(chat)) {
+                await message.reply('⚠️ הפקודה הזו עובדת רק בקבוצות.');
+                return;
+            }
+            
+            const targetId = extractMentionedUser(message);
+            if (!targetId) {
+                await message.reply('⚠️ יש לציין משתמש להורדה. דוגמה: !demote @0521234567');
+                return;
+            }
+            
+            try {
+                await chat.demoteParticipants([targetId]);
+                await message.reply(`✅ המשתמש הורד מאדמין.`);
+            } catch (error) {
+                await message.reply(`❌ שגיאה בהורדה: ${error.message}`);
+            }
+            return;
+        }
+        
+        // 3.5 קישור הזמנה
+        if (msgBody === `${prefix}invite`) {
+            if (!isGroupChat(chat)) {
+                await message.reply('⚠️ הפקודה הזו עובדת רק בקבוצות.');
+                return;
+            }
+            
+            try {
+                const inviteCode = await chat.getInviteCode();
+                const inviteLink = `https://chat.whatsapp.com/${inviteCode}`;
+                await message.reply(`🔗 *קישור הזמנה:*\n${inviteLink}`);
+            } catch (error) {
+                await message.reply(`❌ שגיאה ביצירת קישור: ${error.message}`);
+            }
+            return;
+        }
+        
+        // 3.6 סטטיסטיקות ספאם
+        if (msgBody === `${prefix}spamstats`) {
+            let stats = `📊 *סטטיסטיקות אנטי-ספאם*\n\n`;
+            let totalUsers = 0;
+            let totalWarnings = 0;
+            
+            for (const [, data] of warningTracker) {
+                totalUsers++;
+                totalWarnings += data.warnings;
+            }
+            
+            stats += `👥 משתמשים במעקב: ${totalUsers}\n`;
+            stats += `⚠️ סך אזהרות: ${totalWarnings}\n`;
+            stats += `⚙️ סף אזהרה: ${CONFIG.SPAM.MAX_MESSAGES} הודעות ב-${CONFIG.SPAM.TIME_WINDOW/1000} שניות`;
+            stats += `\n🔢 אזהרות להרחקה: ${CONFIG.SPAM.MAX_WARNINGS}`;
+            
+            await message.reply(stats);
+            return;
+        }
+        
+        // 3.7 איפוס מוניטור ספאם
+        if (msgBody === `${prefix}clearspam`) {
+            warningTracker.clear();
+            await message.reply('✅ כל נתוני הספאם אופסו.');
+            return;
+        }
+        
+        // 3.8 פקודה לא מוכרת למנהל
+        if (msgBody.startsWith(prefix)) {
+            await message.reply('❌ פקודה לא מוכרת. שלח !help לתפריט.');
+        }
+        
     } catch (error) {
         console.error('❌ שגיאה:', error);
         try {
@@ -192,6 +422,5 @@ console.log('🚀 מפעיל את הבוט...');
 console.log('🛡️ מערכת אזהרות מופעלת:');
 console.log(`   📌 ${CONFIG.SPAM.MAX_MESSAGES} הודעות ב-${CONFIG.SPAM.TIME_WINDOW/1000} שניות → אזהרה`);
 console.log(`   ⚠️ ${CONFIG.SPAM.MAX_WARNINGS} אזהרות → הרחקה אוטומטית`);
-console.log(`   👥 מנהלים (הבוט לא מגיב אליהם): ${CONFIG.ADMINS.join(', ')}`);
-console.log('   💬 הבוט לא מגיב לאף משתמש (רק מטפל בספאם)');
+console.log(`   👥 מנהלים: ${CONFIG.ADMINS.join(', ')}`);
 client.initialize();
