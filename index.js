@@ -1,4 +1,5 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
+const qrcode = require('qrcode-terminal');
 
 // ============================================================
 // ====== תצורת הבוט ======
@@ -99,12 +100,16 @@ const client = new Client({
             '--disable-sync',
             '--force-color-profile=srgb'
         ]
-    },
-    phoneNumber: '0537666983'
+    }
 });
 
+// ============================================================
+// ====== אירועי הבוט ======
+// ============================================================
 client.on('qr', (qr) => {
-    console.log('📱 קוד QR (לא בשימוש - משתמשים ב-Pairing Code)');
+    console.log('\n📱 סרוק את קוד ה-QR עם וואטסאפ:');
+    qrcode.generate(qr, { small: true });
+    console.log('\n⏳ ממתין לסריקה...\n');
 });
 
 client.on('authenticated', () => {
