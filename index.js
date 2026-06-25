@@ -8,6 +8,7 @@ const path = require('path');
 // ============================================================
 const CONFIG = {
     ADMINS: [
+        '278945811427515@lid',   // המזהה החדש שלך!
         '972502206606@c.us', 
         '972532796337@c.us', 
         '972537666983@c.us',
@@ -88,9 +89,9 @@ function checkSpam(userId, groupId) {
 // ====== פונקציות עזר ======
 // ============================================================
 function isAdmin(contactId) {
-    const cleanId = contactId.replace(/@c\.us|@s\.whatsapp\.net/g, '');
+    const cleanId = contactId.replace(/@c\.us|@s\.whatsapp\.net|@lid/g, '');
     for (const admin of CONFIG.ADMINS) {
-        const cleanAdmin = admin.replace(/@c\.us|@s\.whatsapp\.net/g, '');
+        const cleanAdmin = admin.replace(/@c\.us|@s\.whatsapp\.net|@lid/g, '');
         if (cleanId === cleanAdmin) {
             return true;
         }
