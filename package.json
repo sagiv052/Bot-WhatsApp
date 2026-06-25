@@ -1,0 +1,12 @@
+echo '{
+  "name": "whatsapp-bot",
+  "version": "1.0.0",
+  "description": "בוט וואטסאפ עם ניהול קבוצות ואנטי-ספאם",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "whatsapp-web.js": "^1.23.0"
+  }
+}' > package.json
