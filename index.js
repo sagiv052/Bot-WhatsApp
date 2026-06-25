@@ -195,6 +195,19 @@ client.on('message', async (message) => {
         const prefix = CONFIG.PREFIX;
         
         // ============================================================
+        // ====== הצגת מזהה המשתמש (לבדיקה) ======
+        // ============================================================
+        if (isCommand(msgBody, 'הזהות שלי') || isCommand(msgBody, 'מי אני')) {
+            const isAdminStatus = isAdmin(senderId) ? '✅ כן' : '❌ לא';
+            await message.reply(
+                `📱 *המזהה שלך:*\n${senderId}\n\n` +
+                `👑 *מנהל:* ${isAdminStatus}\n\n` +
+                `🔍 *רשימת מנהלים בקוד:*\n${CONFIG.ADMINS.join('\n')}`
+            );
+            return;
+        }
+        
+        // ============================================================
         // ====== 1. אנטי-ספאם (רק בקבוצות, לא למנהלים) ======
         // ============================================================
         if (isGroupChat(chat) && !isAdmin(senderId) && !msgBody.startsWith(prefix)) {
@@ -254,7 +267,9 @@ client.on('message', async (message) => {
                 `הזמן - קישור הזמנה לקבוצה\n` +
                 `מחק - מחיקת ההודעה האחרונה\n` +
                 `סטטיסטיקות - סטטיסטיקות ספאם\n` +
-                `אפס ספאם - איפוס מוניטור ספאם`
+                `אפס ספאם - איפוס מוניטור ספאם\n\n` +
+                `🆔 *לבדיקת הרשאות:*\n` +
+                `מי אני - הצגת המזהה והאם אתה מנהל`
             );
             return;
         }
@@ -312,6 +327,7 @@ client.on('message', async (message) => {
         // ====== 3. פקודות ניהול (למנהלים בלבד) ======
         // ============================================================
         if (!isAdmin(senderId)) {
+            // אם המשתמש לא מנהל - מתעלמים בשקט (גם אם שלח פקודה)
             return;
         }
         
@@ -323,9 +339,13 @@ client.on('message', async (message) => {
             }
             
             const isClosing = isCommand(msgBody, 'סגור');
-            await chat.setMessagesAdminsOnly(isClosing);
-            await message.reply(`✅ הקבוצה ${isClosing ? '🔒 נסגרה' : '🔓 נפתחה'}. ${isClosing ? 'רק אדמינים יכולים לשלוח.' : 'כולם יכולים לשלוח.'}`);
-            logMessage(`${senderId} ${isClosing ? 'סגר' : 'פתח'} את הקבוצה ${chat.id._serialized}`);
+            try {
+                await chat.setMessagesAdminsOnly(isClosing);
+                await message.reply(`✅ הקבוצה ${isClosing ? '🔒 נסגרה' : '🔓 נפתחה'}. ${isClosing ? 'רק אדמינים יכולים לשלוח.' : 'כולם יכולים לשלוח.'}`);
+                logMessage(`${senderId} ${isClosing ? 'סגר' : 'פתח'} את הקבוצה ${chat.id._serialized}`);
+            } catch (error) {
+                await message.reply(`❌ שגיאה: ${error.message}. וודא שהבוט הוא אדמין בקבוצה.`);
+            }
             return;
         }
         
@@ -431,7 +451,7 @@ client.on('message', async (message) => {
                     await message.reply('❌ לא נמצאו הודעות למחיקה.');
                     return;
                 }
-                const lastMsg = messages[1]; // ההודעה האחרונה (לא הפקודה עצמה)
+                const lastMsg = messages[1];
                 await lastMsg.delete(true);
                 await message.reply('✅ ההודעה האחרונה נמחקה.');
                 logMessage(`${senderId} מחק הודעה בקבוצה`);
@@ -500,4 +520,5 @@ console.log(`   📌 ${CONFIG.SPAM.MAX_MESSAGES} הודעות ב-${CONFIG.SPAM.T
 console.log(`   ⚠️ ${CONFIG.SPAM.MAX_WARNINGS} אזהרות → הרחקה אוטומטית`);
 console.log(`   👥 מנהלים: ${CONFIG.ADMINS.join(', ')}`);
 console.log(`   📝 לוגים: ${CONFIG.LOGS.ENABLED ? 'מופעלים' : 'כבויים'}`);
+console.log('   🆔 שלח "מי אני" כדי לבדוק את המזהה שלך');
 client.initialize();
