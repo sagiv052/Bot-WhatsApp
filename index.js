@@ -1,30 +1,26 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
-const fs = require('fs');
-const https = require('https');
 
 // ============================================================
 // ====== תצורת הבוט ======
 // ============================================================
 const CONFIG = {
-    TXT_URL: 'https://drive.google.com/uc?export=download&id=הקוד_של_הקובץ',
-    ADMINS: ['972501234567@c.us'],
+    ADMINS: ['972501234567@c.us'], // ⬅️ עדכן את המספר שלך כאן (פורמט: קידומת+מספר@c.us)
     PREFIX: '!',
     
     // ====== הגדרות אנטי-ספאם ======
     SPAM: {
-        MAX_MESSAGES: 5,        // מספר הודעות מקסימלי
+        MAX_MESSAGES: 5,        // מספר הודעות מקסימלי לפני אזהרה
         TIME_WINDOW: 20000,     // 20 שניות
-        WARN_MESSAGE: '⚠️ *אזהרה!* אתה שולח יותר מדי הודעות (5 הודעות ב-20 שניות). אנא האט!',
-        KICK_MESSAGE: '🚫 *הוסרת מהקבוצה* על הצפה חוזרת!',
-        MUTE_DURATION: 60000,   // דקה של השתקה לאחר אזהרה
-        BAN_DURATION: 300000    // 5 דקות הרחקה לאחר הסרה
+        MUTE_DURATION: 60000,   // משך ההשתקה (60 שניות)
+        WARN_MESSAGE: '⚠️ *אזהרה!* אתה שולח יותר מדי הודעות (5 ב-20 שניות). הושתקת ל-60 שניות!',
+        KICK_MESSAGE: '🚫 *הוסרת מהקבוצה* על הצפה חוזרת!'
     }
 };
 
 // ============================================================
 // ====== מערכת אנטי-ספאם ======
 // ============================================================
-const spamTracker = new Map(); // key: userId, value: { messages: [], warnings: 0, mutedUntil: 0 }
+const spamTracker = new Map(); // key: groupId_userId, value: { messages: [], warnings: 0, mutedUntil: 0 }
 
 function checkSpam(userId, groupId) {
     const key = `${groupId}_${userId}`;
@@ -36,75 +32,43 @@ function checkSpam(userId, groupId) {
     
     const userData = spamTracker.get(key);
     
-    // בדיקה אם מושתק
+    // אם מושתק – מחזירים סטטוס מושתק
     if (userData.mutedUntil > now) {
-        return { isSpam: true, isMuted: true, remainingTime: Math.ceil((userData.mutedUntil - now) / 1000) };
+        return { 
+            isSpam: true, 
+            isMuted: true, 
+            remainingTime: Math.ceil((userData.mutedUntil - now) / 1000),
+            warningCount: userData.warnings,
+            shouldKick: userData.warnings >= 2
+        };
     }
     
-    // ניקוי הודעות ישנות
+    // ניקוי הודעות ישנות (מחוץ לחלון הזמן)
     userData.messages = userData.messages.filter(time => now - time < CONFIG.SPAM.TIME_WINDOW);
+    userData.messages.push(now); // הוספת ההודעה החדשה
     
-    // הוספת ההודעה החדשה
-    userData.messages.push(now);
-    
-    // בדיקת כמות הודעות
+    // בדיקה אם עבר את הסף
     if (userData.messages.length >= CONFIG.SPAM.MAX_MESSAGES) {
         userData.warnings += 1;
         userData.messages = []; // איפוס הספירה
         
-        // השתקת המשתמש
+        // השתקה
         userData.mutedUntil = now + CONFIG.SPAM.MUTE_DURATION;
-        
-        // אם זו אזהרה שנייה - סימון להסרה
         const shouldKick = userData.warnings >= 2;
         
         spamTracker.set(key, userData);
         
-        return { 
-            isSpam: true, 
-            warningCount: userData.warnings,
-            shouldKick: shouldKick,
+        return {
+            isSpam: true,
             isMuted: true,
-            remainingTime: Math.ceil((userData.mutedUntil - now) / 1000)
+            remainingTime: Math.ceil((userData.mutedUntil - now) / 1000),
+            warningCount: userData.warnings,
+            shouldKick: shouldKick
         };
     }
     
     spamTracker.set(key, userData);
     return { isSpam: false };
-}
-
-// ============================================================
-// ====== קריאת קובץ מ-Google Drive ======
-// ============================================================
-let cachedData = [];
-let lastFetchTime = 0;
-const CACHE_TTL = 5 * 60 * 1000;
-
-function fetchTxtFromDrive(url) {
-    return new Promise((resolve, reject) => {
-        https.get(url, (response) => {
-            let data = '';
-            response.on('data', chunk => data += chunk);
-            response.on('end', () => {
-                const lines = data.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-                resolve(lines);
-            });
-        }).on('error', reject);
-    });
-}
-
-async function getTxtData(forceRefresh = false) {
-    const now = Date.now();
-    if (!forceRefresh && (now - lastFetchTime) < CACHE_TTL && cachedData.length > 0) {
-        return cachedData;
-    }
-    try {
-        cachedData = await fetchTxtFromDrive(CONFIG.TXT_URL);
-        lastFetchTime = now;
-        return cachedData;
-    } catch (error) {
-        return cachedData.length > 0 ? cachedData : ['❌ לא ניתן לטעון את הקובץ'];
-    }
 }
 
 // ============================================================
@@ -119,9 +83,11 @@ function isGroupChat(chat) {
 }
 
 function extractMentionedUser(message) {
+    // מנסה לחלץ מהמנטיונים
     if (message.mentionedIds && message.mentionedIds.length > 0) {
         return message.mentionedIds[0];
     }
+    // ניסיון לחלץ מספר מהטקסט (למשל @0521234567)
     const match = message.body.match(/@?(\d{10,12})/);
     if (match) {
         return match[1] + '@c.us';
@@ -148,10 +114,8 @@ client.on('qr', (qr) => {
     console.log(qr);
 });
 
-client.on('ready', async () => {
+client.on('ready', () => {
     console.log('✅ הבוט מוכן!');
-    await getTxtData(true);
-    console.log('📄 המידע מהקובץ נטען');
     console.log('🛡️ מערכת אנטי-ספאם פעילה!');
 });
 
@@ -171,52 +135,32 @@ client.on('message', async (message) => {
             const groupId = chat.id._serialized;
             const spamCheck = checkSpam(senderId, groupId);
             
-            if (spamCheck.isSpam) {
-                // אם מושתק - מוחקים את ההודעה
-                if (spamCheck.isMuted) {
-                    try {
-                        await message.delete(true);
-                        console.log(`🗑️ הודעה נמחקה מ-${senderId} (מושתק)`);
-                    } catch (e) {}
-                    
-                    // שליחת הודעה פרטית למשתמש
-                    try {
-                        const contact = await message.getContact();
-                        await contact.sendMessage(`🔇 *הושתקת ל-${spamCheck.remainingTime} שניות* על הצפה.`);
-                    } catch (e) {}
-                    
-                    return; // לא ממשיכים לשאר הפקודות
-                }
+            if (spamCheck.isSpam && spamCheck.isMuted) {
+                // מוחקים את ההודעה
+                try {
+                    await message.delete(true);
+                    console.log(`🗑️ הודעה נמחקה מ-${senderId} (מושתק)`);
+                } catch (e) {}
                 
-                // אם צריך להסיר - מוציאים מהקבוצה
+                // אם צריך להסיר – עושים זאת
                 if (spamCheck.shouldKick) {
                     try {
                         await chat.removeParticipants([senderId]);
                         await message.reply(CONFIG.SPAM.KICK_MESSAGE);
                         console.log(`🚫 ${senderId} הוסר מהקבוצה על הצפה`);
-                        
-                        // איפוס הסטטוס
-                        const key = `${groupId}_${senderId}`;
-                        spamTracker.delete(key);
+                        // איפוס המוניטור אחרי ההסרה
+                        spamTracker.delete(`${groupId}_${senderId}`);
                     } catch (error) {
                         console.error('❌ שגיאה בהסרה:', error);
                     }
-                    return;
+                } else {
+                    // שליחת הודעה פרטית למשתמש (אם רוצים)
+                    try {
+                        const contact = await message.getContact();
+                        await contact.sendMessage(`🔇 *הושתקת ל-${spamCheck.remainingTime} שניות* על הצפה.`);
+                    } catch (e) {}
                 }
-                
-                // אזהרה ראשונה
-                await message.reply(CONFIG.SPAM.WARN_MESSAGE);
-                try {
-                    const contact = await message.getContact();
-                    await contact.sendMessage(`⚠️ *אזהרה ראשונה!* הושתקת ל-${spamCheck.remainingTime} שניות. אזהרה נוספת = הסרה מהקבוצה.`);
-                } catch (e) {}
-                
-                // מחק את ההודעות האחרונות של המשתמש
-                try {
-                    await message.delete(true);
-                } catch (e) {}
-                
-                return;
+                return; // לא ממשיכים לשאר הפקודות
             }
         }
         
@@ -228,18 +172,18 @@ client.on('message', async (message) => {
                 `📋 *פקודות זמינות:*\n\n` +
                 `${prefix}help - עזרה\n` +
                 `${prefix}hi - שלום\n` +
-                `${prefix}how - מה איתך?\n` +
-                `${prefix}close - סגירת הקבוצה (🔒 אדמין)\n` +
-                `${prefix}open - פתיחת הקבוצה (🔓 אדמין)\n` +
-                `${prefix}remove @שם - הסרת משתמש (אדמין)\n` +
-                `${prefix}promote @שם - הפיכת משתמש לאדמין (אדמין)\n` +
-                `${prefix}demote @שם - הורדת משתמש מאדמין (אדמין)\n` +
-                `${prefix}invite - קישור הזמנה (אדמין)\n` +
-                `${prefix}search [מילה] - חיפוש בקובץ\n` +
-                `${prefix}all - הצגת כל הקובץ\n` +
-                `${prefix}unmute @שם - ביטול השתקה (אדמין)\n` +
-                `${prefix}spamstats - סטטיסטיקות ספאם (אדמין)\n` +
-                `${prefix}clearspam - איפוס מוניטור ספאם (אדמין)`
+                `${prefix}how - מה איתך?\n\n` +
+                `🔒 *ניהול קבוצות (אדמין בלבד):*\n` +
+                `${prefix}close - סגירת הקבוצה\n` +
+                `${prefix}open - פתיחת הקבוצה\n` +
+                `${prefix}remove @שם - הסרת משתמש\n` +
+                `${prefix}promote @שם - הפיכת משתמש לאדמין\n` +
+                `${prefix}demote @שם - הורדת משתמש מאדמין\n` +
+                `${prefix}invite - קישור הזמנה\n\n` +
+                `🛡️ *ניהול ספאם (אדמין בלבד):*\n` +
+                `${prefix}unmute @שם - ביטול השתקה\n` +
+                `${prefix}spamstats - סטטיסטיקות ספאם\n` +
+                `${prefix}clearspam - איפוס מוניטור ספאם`
             );
             return;
         }
@@ -448,32 +392,13 @@ client.on('message', async (message) => {
         }
         
         // ============================================================
-        // ====== 3. חיפוש בקובץ ======
+        // ====== 3. תשובה להודעה רגילה (לא פקודה) ======
         // ============================================================
-        if (msgBody.startsWith(`${prefix}search `)) {
-            const keyword = msgBody.slice(`${prefix}search `.length).trim();
-            if (!keyword) {
-                await message.reply('⚠️ יש להזין מילת חיפוש. דוגמה: !search שלום');
-                return;
+        if (!msgBody.startsWith(prefix) && !isAdmin(senderId)) {
+            // תשובה אקראית (רק לעיתים רחוקות כדי לא להציף)
+            if (Math.random() < 0.1) {
+                await message.reply('🤖 אני בוט. שלח !help לרשימת פקודות.');
             }
-            
-            const data = await getTxtData();
-            const results = data.filter(line => line.toLowerCase().includes(keyword.toLowerCase()));
-            
-            if (results.length === 0) {
-                await message.reply(`❌ לא נמצא מידע עבור: "${keyword}"`);
-            } else {
-                const response = `🔍 *תוצאות חיפוש עבור "${keyword}":*\n\n` + results.slice(0, 5).join('\n');
-                await message.reply(response.slice(0, 4096));
-            }
-            return;
-        }
-        
-        if (msgBody === `${prefix}all`) {
-            const data = await getTxtData();
-            const response = `📄 *כל המידע מהקובץ:*\n\n` + data.join('\n');
-            await message.reply(response.slice(0, 4096));
-            return;
         }
         
     } catch (error) {
@@ -498,4 +423,4 @@ console.log('🛡️ מערכת אנטי-ספאם מופעלת:');
 console.log(`   📌 ${CONFIG.SPAM.MAX_MESSAGES} הודעות ב-${CONFIG.SPAM.TIME_WINDOW/1000} שניות`);
 console.log(`   ⚠️ אזהרה → השתקה ל-${CONFIG.SPAM.MUTE_DURATION/1000} שניות`);
 console.log(`   🚫 אזהרה שנייה → הסרה מהקבוצה`);
-client.initialize(); זה הכוונה איפה לעלות את זה ואיזה שם לתת לזה
+client.initialize();
