@@ -4,14 +4,13 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 // ====== תצורת הבוט ======
 // ============================================================
 const CONFIG = {
-    ADMINS: ['972502206606@c.us', '972532796337@c.us', '972537666983@c.us'], // 3 המנהלים
+    ADMINS: ['972502206606@c.us', '972532796337@c.us', '972537666983@c.us'],
     PREFIX: '!',
     
-    // ====== הגדרות אזהרות וספאם ======
     SPAM: {
-        MAX_MESSAGES: 5,           // מספר הודעות מקסימלי לפני אזהרה
-        TIME_WINDOW: 20000,        // 20 שניות
-        MAX_WARNINGS: 3,           // 3 אזהרות ואז הרחקה
+        MAX_MESSAGES: 5,
+        TIME_WINDOW: 20000,
+        MAX_WARNINGS: 3,
         WARN_MESSAGES: [
             '⚠️ *אזהרה ראשונה!* אתה שולח יותר מדי הודעות (5 ב-20 שניות). האט!',
             '⚠️ *אזהרה שנייה!* זו אזהרה אחרונה! הודעה נוספת = הרחקה מהקבוצה.',
@@ -24,7 +23,7 @@ const CONFIG = {
 // ============================================================
 // ====== מערכת אזהרות ======
 // ============================================================
-const warningTracker = new Map(); // key: groupId_userId, value: { messages: [], warnings: 0 }
+const warningTracker = new Map();
 
 function checkSpam(userId, groupId) {
     const key = `${groupId}_${userId}`;
@@ -35,19 +34,14 @@ function checkSpam(userId, groupId) {
     }
     
     const userData = warningTracker.get(key);
-    
-    // ניקוי הודעות ישנות
     userData.messages = userData.messages.filter(time => now - time < CONFIG.SPAM.TIME_WINDOW);
     userData.messages.push(now);
     
-    // בדיקה אם עבר את הסף
     if (userData.messages.length >= CONFIG.SPAM.MAX_MESSAGES) {
         userData.warnings += 1;
-        userData.messages = []; // איפוס הספירה
-        
+        userData.messages = [];
         const warnCount = userData.warnings;
         const shouldKick = warnCount >= CONFIG.SPAM.MAX_WARNINGS;
-        
         warningTracker.set(key, userData);
         
         return {
@@ -62,9 +56,6 @@ function checkSpam(userId, groupId) {
     return { isSpam: false };
 }
 
-// ============================================================
-// ====== פונקציות עזר ======
-// ============================================================
 function isAdmin(contactId) {
     return CONFIG.ADMINS.includes(contactId);
 }
@@ -80,17 +71,13 @@ const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
         headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
+        executablePath: '/data/data/com.termux/files/usr/lib/chromium/chrome',
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
     },
-    // ====== אימות באמצעות קוד במקום QR ======
-    phoneNumber: '0537666983' // המספר של הבוט
+    phoneNumber: '0537666983'
 });
 
-// ============================================================
-// ====== אירועי הבוט ======
-// ============================================================
 client.on('qr', (qr) => {
-    // כבר לא צריך QR, אבל נשאר למקרה חרום
     console.log('📱 אם ה-QR מופיע, סרוק אותו.');
 });
 
@@ -117,32 +104,22 @@ client.on('message', async (message) => {
         const senderId = message.author || message.from;
         const prefix = CONFIG.PREFIX;
         
-        // ============================================================
-        // ====== 1. התעלמות מוחלטת ממנהלים ======
-        // ============================================================
         if (isAdmin(senderId)) {
-            return; // מנהלים - הבוט לא עושה כלום
+            return;
         }
         
-        // ============================================================
-        // ====== 2. בדיקת ספאם (רק בקבוצות) ======
-        // ============================================================
         if (isGroupChat(chat) && !msgBody.startsWith(prefix)) {
             const groupId = chat.id._serialized;
             const spamCheck = checkSpam(senderId, groupId);
             
             if (spamCheck.isSpam) {
-                // שליחת אזהרה בצ'אט
                 await message.reply(spamCheck.message);
                 
-                // אם צריך להסיר - עושים זאת
                 if (spamCheck.shouldKick) {
                     try {
-                        // הסרה מהקבוצה
                         await chat.removeParticipants([senderId]);
                         console.log(`🚫 ${senderId} הוסר מהקבוצה (3 אזהרות)`);
                         
-                        // שליחת הודעה פרטית למשתמש
                         try {
                             const contact = await message.getContact();
                             await contact.sendMessage(
@@ -156,25 +133,15 @@ client.on('message', async (message) => {
                             console.error('❌ שגיאה בשליחת הודעה פרטית:', e);
                         }
                         
-                        // איפוס המוניטור אחרי ההסרה
                         warningTracker.delete(`${groupId}_${senderId}`);
                     } catch (error) {
                         console.error('❌ שגיאה בהסרה:', error);
                         await message.reply('❌ שגיאה בהרחקת המשתמש. וודא שהבוט הוא אדמין בקבוצה.');
                     }
                 }
-                return; // לא ממשיכים לפקודות
+                return;
             }
         }
-        
-        // ============================================================
-        // ====== 3. פקודות בסיסיות (רק למנהלים!) ======
-        // ============================================================
-        // (כבר טיפלנו במנהלים ב-return, אז הם לא מגיעים לכאן)
-        // ============================================================
-        // ====== 4. תגובה אוטומטית ======
-        // ============================================================
-        // בלי שום תגובה אוטומטית (בהתאם לדרישה)
         
     } catch (error) {
         console.error('❌ שגיאה:', error);
@@ -184,9 +151,6 @@ client.on('message', async (message) => {
     }
 });
 
-// ============================================================
-// ====== הרצת הבוט ======
-// ============================================================
 process.on('SIGINT', async () => {
     console.log('🛑 סוגר את הבוט...');
     await client.destroy();
@@ -196,7 +160,7 @@ process.on('SIGINT', async () => {
 console.log('🚀 מפעיל את הבוט...');
 console.log('🛡️ מערכת אזהרות מופעלת:');
 console.log(`   📌 ${CONFIG.SPAM.MAX_MESSAGES} הודעות ב-${CONFIG.SPAM.TIME_WINDOW/1000} שניות → אזהרה`);
-console.log(`   ⚠️ ${CONFIG.SPAM.MAX_WARNINGS} אזהרות → הרחקה אוטומטית`);
-console.log(`   👥 מנהלים (הבוט לא מגיב אליהם): ${CONFIG.ADMINS.join(', ')}`);
-console.log('   💬 הבוט לא מגיב לאף משתמש (רק מטפל בספאם)');
+console.log(`   ⚠️ ${CONFIG.SPAM.MAX_WARNINGS '} אזהרות →)} הרחקה אוטומטית`);
+console.log(`  `);
+ 👥 מנהלים (הבוט לא מגיב אליהם): ${CONFIG.ADMINS.join(',console.log('   💬 הבוט לא מגיב לאף משתמש (רק מטפל בספאם)');
 client.initialize();
