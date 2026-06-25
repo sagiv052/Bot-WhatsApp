@@ -4,7 +4,7 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 // ====== תצורת הבוט ======
 // ============================================================
 const CONFIG = {
-    ADMINS: ['972502206606@c.us', '972532796337@c.us'], // שני המנהלים
+    ADMINS: ['972502206606@c.us', '972532796337@c.us', '972537666983@c.us'], // 3 המנהלים
     PREFIX: '!',
     
     // ====== הגדרות אזהרות וספאם ======
@@ -73,17 +73,6 @@ function isGroupChat(chat) {
     return chat.isGroup;
 }
 
-function extractMentionedUser(message) {
-    if (message.mentionedIds && message.mentionedIds.length > 0) {
-        return message.mentionedIds[0];
-    }
-    const match = message.body.match(/@?(\d{10,12})/);
-    if (match) {
-        return match[1] + '@c.us';
-    }
-    return null;
-}
-
 // ============================================================
 // ====== אתחול הבוט ======
 // ============================================================
@@ -92,15 +81,25 @@ const client = new Client({
     puppeteer: {
         headless: true,
         args: ['--no-sandbox', '--disable-setuid-sandbox']
-    }
+    },
+    // ====== אימות באמצעות קוד במקום QR ======
+    phoneNumber: '0537666983' // המספר של הבוט
 });
 
 // ============================================================
 // ====== אירועי הבוט ======
 // ============================================================
 client.on('qr', (qr) => {
-    console.log('📱 סרוק את הקוד QR:');
-    console.log(qr);
+    // כבר לא צריך QR, אבל נשאר למקרה חרום
+    console.log('📱 אם ה-QR מופיע, סרוק אותו.');
+});
+
+client.on('authenticated', () => {
+    console.log('🔐 הבוט אומת בהצלחה!');
+});
+
+client.on('auth_failure', (msg) => {
+    console.error('❌ אימות נכשל:', msg);
 });
 
 client.on('ready', () => {
