@@ -79,14 +79,32 @@ const client = new Client({
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
             '--no-zygote',
-            '--single-process'
+            '--single-process',
+            '--disable-gpu',
+            '--disable-features=IsolateOrigins,site-per-process',
+            '--disable-blink-features=AutomationControlled',
+            '--disable-background-networking',
+            '--disable-background-timer-throttling',
+            '--disable-backgrounding-occluded-windows',
+            '--disable-breakpad',
+            '--disable-client-side-phishing-detection',
+            '--disable-component-extensions-with-background-pages',
+            '--disable-default-apps',
+            '--disable-extensions',
+            '--disable-hang-monitor',
+            '--disable-ipc-flooding-protection',
+            '--disable-popup-blocking',
+            '--disable-prompt-on-repost',
+            '--disable-renderer-backgrounding',
+            '--disable-sync',
+            '--force-color-profile=srgb'
         ]
     },
-    phoneNumber: '0537666983' // המספר של הבוט
+    phoneNumber: '0537666983'
 });
 
 client.on('qr', (qr) => {
-    console.log('📱 קוד QR (לא בשימוש)');
+    console.log('📱 קוד QR (לא בשימוש - משתמשים ב-Pairing Code)');
 });
 
 client.on('authenticated', () => {
