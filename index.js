@@ -255,7 +255,7 @@ async function checkSchedule(client) {
         const chat = await client.getChatById(scheduleConfig.groupId);
         if (!chat) return;
 
-        // בדיקה אם הגיע זמן סגירה (טווח של 3 דקות)
+        // בדיקה אם הגיע זמן סגירה (טווח של 2 דקות)
         const closeWindowStart = addMinutes(closeTime, -2);
         const closeWindowEnd = addMinutes(closeTime, 2);
         
@@ -266,7 +266,7 @@ async function checkSchedule(client) {
             logMessage(`🔒 הקבוצה נסגרה אוטומטית בשעה ${closeTime}`);
             await client.sendMessage(scheduleConfig.groupId, `🔒 *הקבוצה נסגרה אוטומטית* (${closeTime})`);
         }
-        // בדיקה אם הגיע זמן פתיחה (טווח של 3 דקות)
+        // בדיקה אם הגיע זמן פתיחה (טווח של 2 דקות)
         const openWindowStart = addMinutes(openTime, -2);
         const openWindowEnd = addMinutes(openTime, 2);
         
@@ -1020,7 +1020,7 @@ client.on('message', async (message) => {
                                     `🚫 *הוסרת מהקבוצה*\n\n` +
                                     `קיבלת 3 אזהרות על הצפה בקבוצה והוסרת אוטומטית.\n` +
                                     `📌 כדי לחזור, פנה לאחד המנהלים:\n` +
-                                    `${ADMINS_LIST.join('\n')}`
+                                    `📞 +972 53-279-6337`
                                 );
                                 logMessage(`📩 נשלחה הודעה פרטית ל-${senderId}`);
                             } catch (e) {
