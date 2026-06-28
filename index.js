@@ -2,6 +2,49 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+
+// ============================================================
+// ====== זיהוי מערכת הפעלה ======
+// ============================================================
+const isAndroid = os.platform() === 'android';
+const isMac = os.platform() === 'darwin';
+
+// ============================================================
+// ====== נתיב Chromium לפי מערכת ======
+// ============================================================
+let chromiumPath = null;
+
+if (isAndroid) {
+    // נתיב ל-Termux (Android)
+    const possiblePaths = [
+        '/data/data/com.termux/files/usr/bin/chromium-browser',
+        '/data/data/com.termux/files/usr/bin/chromium',
+        '/data/data/com.termux/files/usr/lib/chromium/chrome'
+    ];
+    for (const p of possiblePaths) {
+        if (fs.existsSync(p)) {
+            chromiumPath = p;
+            break;
+        }
+    }
+} else if (isMac) {
+    // נתיבים למק
+    const possiblePaths = [
+        '/usr/local/bin/chromium',
+        '/Applications/Chromium.app/Contents/MacOS/Chromium',
+        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+    ];
+    for (const p of possiblePaths) {
+        if (fs.existsSync(p)) {
+            chromiumPath = p;
+            break;
+        }
+    }
+}
+
+console.log(`🖥️ מערכת: ${isAndroid ? 'Android (Termux)' : isMac ? 'Mac' : 'אחר'}`);
+console.log(`📂 נתיב Chromium: ${chromiumPath || 'אוטומטי'}`);
 
 // ============================================================
 // ====== קובץ מנהלים ======
@@ -310,7 +353,7 @@ const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
         headless: true,
-        executablePath: '/data/data/com.termux/files/usr/bin/chromium-browser',
+        executablePath: chromiumPath || undefined, // אם אין נתיב - יבחר אוטומטית
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
