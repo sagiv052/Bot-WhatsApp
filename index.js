@@ -310,7 +310,7 @@ const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
         headless: true,
-        executablePath: '/Applications/Chromium.app/Contents/MacOS/Chromium',
+        executablePath: '/opt/homebrew/bin/chromium',
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
