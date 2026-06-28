@@ -2,48 +2,6 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
-
-// ============================================================
-// ====== זיהוי מערכת הפעלה אוטומטי - מחשב / מקבוק / טרמקוס ======
-// ============================================================
-function getBrowserPath() {
-    const platform = process.platform;
-
-    // ✅ Termux / Android
-    if (platform === 'android' || os.hostname().includes('localhost')) {
-        return '/data/data/com.termux/files/usr/bin/chromium-browser';
-    }
-
-    // ✅ MacBook / macOS
-    if (platform === 'darwin') {
-        return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-    }
-
-    // ✅ Linux / VPS / Ubuntu / Debian
-    if (platform === 'linux') {
-        const possiblePaths = [
-            '/usr/bin/google-chrome-stable',
-            '/usr/bin/google-chrome',
-            '/usr/bin/chromium-browser',
-            '/usr/bin/chromium'
-        ];
-        for (const p of possiblePaths) {
-            if (fs.existsSync(p)) {
-                return p;
-            }
-        }
-        return '/usr/bin/google-chrome-stable';
-    }
-
-    // ✅ Windows
-    if (platform === 'win32') {
-        return 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-    }
-
-    // ברירת מחדל
-    return null;
-}
 
 // ============================================================
 // ====== קובץ מנהלים ======
@@ -318,6 +276,7 @@ async function checkSchedule(client) {
         const chat = await client.getChatById(scheduleConfig.groupId);
         if (!chat) return;
 
+        // בדיקה אם הגיע זמן סגירה (טווח של 2 דקות)
         const closeWindowStart = addMinutes(closeTime, -2);
         const closeWindowEnd = addMinutes(closeTime, 2);
         
@@ -328,7 +287,7 @@ async function checkSchedule(client) {
             logMessage(`🔒 הקבוצה נסגרה אוטומטית בשעה ${closeTime}`);
             await client.sendMessage(scheduleConfig.groupId, `🔒 *הקבוצה נסגרה אוטומטית* (${closeTime})`);
         }
-        
+        // בדיקה אם הגיע זמן פתיחה (טווח של 2 דקות)
         const openWindowStart = addMinutes(openTime, -2);
         const openWindowEnd = addMinutes(openTime, 2);
         
@@ -351,7 +310,7 @@ const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
         headless: true,
-        executablePath: getBrowserPath(),
+        executablePath: '/data/data/com.termux/files/usr/bin/chromium-browser',
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -418,12 +377,57 @@ client.on('message', async (message) => {
         const senderId = message.author || message.from;
         const prefix = CONFIG.PREFIX;
         
-        // התעלמות מוחלטת ממי שלא מנהל
+        // ============================================================
+        // ====== טיפול במשתמשים רגילים ======
+        // ============================================================
         if (!isAdmin(senderId)) {
+            // בודקים אם זו קבוצה מנוהלת
+            if (isGroupChat(chat)) {
+                const groupId = chat.id._serialized;
+                if (GROUPS_LIST[groupId]) {
+                    // ====== בדיקת ספאם (רק הודעות רגילות, לא פקודות) ======
+                    if (!msgBody.startsWith(prefix)) {
+                        const spamCheck = checkSpam(senderId, groupId);
+                        
+                        if (spamCheck.isSpam) {
+                            await message.reply(spamCheck.message);
+                            
+                            if (spamCheck.shouldKick) {
+                                try {
+                                    await chat.removeParticipants([senderId]);
+                                    logMessage(`🚫 ${senderId} הוסר מהקבוצה (3 אזהרות)`);
+                                    
+                                    try {
+                                        const contact = await message.getContact();
+                                        await contact.sendMessage(
+                                            `🚫 *הוסרת מהקבוצה*\n\n` +
+                                            `קיבלת 3 אזהרות על הצפה בקבוצה והוסרת אוטומטית.\n` +
+                                            `📌 *אין לפנות למנהלים!*\n` +
+                                            `📞 +972 53-279-6337`
+                                        );
+                                        logMessage(`📩 נשלחה הודעה פרטית ל-${senderId}`);
+                                    } catch (e) {
+                                        logMessage(`❌ שגיאה בשליחת הודעה פרטית: ${e}`);
+                                    }
+                                    
+                                    warningTracker.delete(`${groupId}_${senderId}`);
+                                } catch (error) {
+                                    logMessage(`❌ שגיאה בהסרה: ${error}`);
+                                    await message.reply('❌ שגיאה בהרחקת המשתמש. וודא שהבוט הוא אדמין בקבוצה.');
+                                }
+                            }
+                            return;
+                        }
+                    }
+                }
+            }
+            // שאר ההודעות של משתמשים רגילים - מתעלמים
             return;
         }
         
-        // ====== הצגת מזהה המשתמש ======
+        // ============================================================
+        // ====== הצגת מזהה המשתמש (לבדיקה) ======
+        // ============================================================
         if (isCommand(msgBody, 'הזהות שלי') || isCommand(msgBody, 'מי אני')) {
             const isAdminStatus = isAdmin(senderId) ? '✅ כן' : '❌ לא';
             await message.reply(
@@ -434,7 +438,9 @@ client.on('message', async (message) => {
             return;
         }
         
-        // ====== הצגת מזהה הקבוצה ======
+        // ============================================================
+        // ====== הצגת מזהה הקבוצה (לבדיקה) ======
+        // ============================================================
         if (isCommand(msgBody, 'מזהה קבוצה') || isCommand(msgBody, 'id קבוצה')) {
             if (!isGroupChat(chat)) {
                 await message.reply('⚠️ הפקודה הזו עובדת רק בקבוצות.');
@@ -452,13 +458,17 @@ client.on('message', async (message) => {
             return;
         }
         
+        // ============================================================
         // ====== חוקי הקבוצה ======
+        // ============================================================
         if (isCommand(msgBody, 'חוקים') || isCommand(msgBody, 'rules')) {
             await message.reply(RULES);
             return;
         }
         
-        // ====== הוספת מנהל ======
+        // ============================================================
+        // ====== הוספת מנהל חדש (למנהלים בלבד) ======
+        // ============================================================
         if (isCommand(msgBody, 'הוסף מנהל')) {
             const targetId = extractMentionedUser(message);
             if (!targetId) {
@@ -481,7 +491,9 @@ client.on('message', async (message) => {
             return;
         }
         
-        // ====== הסרת מנהל ======
+        // ============================================================
+        // ====== הסרת מנהל (למנהלים בלבד) ======
+        // ============================================================
         if (isCommand(msgBody, 'הסר מנהל')) {
             const targetId = extractMentionedUser(message);
             if (!targetId) {
@@ -509,7 +521,11 @@ client.on('message', async (message) => {
             return;
         }
         
+        // ============================================================
         // ====== ניהול קבוצות ======
+        // ============================================================
+        
+        // 1. הוספת קבוצה לניהול
         if (isCommand(msgBody, 'הוסף קבוצה')) {
             if (!isGroupChat(chat)) {
                 await message.reply('⚠️ הפקודה הזו עובדת רק בקבוצות.');
@@ -537,6 +553,7 @@ client.on('message', async (message) => {
             return;
         }
         
+        // 2. הסרת קבוצה מניהול
         if (isCommand(msgBody, 'הסר קבוצה')) {
             if (!isGroupChat(chat)) {
                 await message.reply('⚠️ הפקודה הזו עובדת רק בקבוצות.');
@@ -559,6 +576,7 @@ client.on('message', async (message) => {
             return;
         }
         
+        // 3. רשימת קבוצות מנוהלות
         if (isCommand(msgBody, 'קבוצות')) {
             const groupIds = Object.keys(GROUPS_LIST);
             if (groupIds.length === 0) {
@@ -576,7 +594,9 @@ client.on('message', async (message) => {
             return;
         }
         
-        // ====== תפריט עזרה ======
+        // ============================================================
+        // ====== פקודות כלליות (למנהלים בלבד) ======
+        // ============================================================
         if (isCommand(msgBody, 'help') || isCommand(msgBody, 'עזרה')) {
             await message.reply(
                 `📋 *תפריט עזרה - הבוט החכם v3.3*\n\n` +
@@ -670,7 +690,11 @@ client.on('message', async (message) => {
             return;
         }
         
+        // ============================================================
         // ====== פקודות ניהול (בקבוצות מנוהלות) ======
+        // ============================================================
+        
+        // 1. סגירת/פתיחת קבוצה
         if (isCommand(msgBody, 'סגור') || isCommand(msgBody, 'פתח')) {
             if (!isGroupChat(chat)) {
                 await message.reply('⚠️ הפקודה הזו עובדת רק בקבוצות.');
@@ -694,6 +718,7 @@ client.on('message', async (message) => {
             return;
         }
         
+        // 2. הסרת משתמש
         if (isCommand(msgBody, 'הסר')) {
             if (!isGroupChat(chat)) {
                 await message.reply('⚠️ הפקודה הזו עובדת רק בקבוצות.');
@@ -724,6 +749,7 @@ client.on('message', async (message) => {
             return;
         }
         
+        // 3. הפיכת משתמש לאדמין
         if (isCommand(msgBody, 'קדם')) {
             if (!isGroupChat(chat)) {
                 await message.reply('⚠️ הפקודה הזו עובדת רק בקבוצות.');
@@ -752,6 +778,7 @@ client.on('message', async (message) => {
             return;
         }
         
+        // 4. הורדת משתמש מאדמין
         if (isCommand(msgBody, 'הורד')) {
             if (!isGroupChat(chat)) {
                 await message.reply('⚠️ הפקודה הזו עובדת רק בקבוצות.');
@@ -780,6 +807,7 @@ client.on('message', async (message) => {
             return;
         }
         
+        // 5. קישור הזמנה
         if (isCommand(msgBody, 'הזמן')) {
             if (!isGroupChat(chat)) {
                 await message.reply('⚠️ הפקודה הזו עובדת רק בקבוצות.');
@@ -803,6 +831,7 @@ client.on('message', async (message) => {
             return;
         }
         
+        // 6. מחיקת ההודעה האחרונה
         if (isCommand(msgBody, 'מחק')) {
             if (!isGroupChat(chat)) {
                 await message.reply('⚠️ הפקודה הזו עובדת רק בקבוצות.');
@@ -831,6 +860,7 @@ client.on('message', async (message) => {
             return;
         }
         
+        // 7. סטטיסטיקות ספאם
         if (isCommand(msgBody, 'סטטיסטיקות')) {
             let stats = `📊 *סטטיסטיקות אנטי-ספאם*\n\n`;
             let totalUsers = 0;
@@ -850,6 +880,7 @@ client.on('message', async (message) => {
             return;
         }
         
+        // 8. איפוס מוניטור ספאם
         if (isCommand(msgBody, 'אפס ספאם')) {
             warningTracker.clear();
             await message.reply('✅ כל נתוני הספאם אופסו.');
@@ -857,7 +888,11 @@ client.on('message', async (message) => {
             return;
         }
         
-        // ====== תזמון ======
+        // ============================================================
+        // ====== הגדרות תזמון (בקבוצות מנוהלות) ======
+        // ============================================================
+        
+        // 1. שעת פתיחה
         if (isCommand(msgBody, 'פתיחה')) {
             if (!isGroupChat(chat)) {
                 await message.reply('⚠️ הפקודה הזו עובדת רק בקבוצות.');
@@ -899,6 +934,7 @@ client.on('message', async (message) => {
             return;
         }
         
+        // 2. שעת סגירה
         if (isCommand(msgBody, 'סגירה')) {
             if (!isGroupChat(chat)) {
                 await message.reply('⚠️ הפקודה הזו עובדת רק בקבוצות.');
@@ -940,6 +976,7 @@ client.on('message', async (message) => {
             return;
         }
         
+        // 3. תזמון מלא
         if (isCommand(msgBody, 'תזמן')) {
             if (!isGroupChat(chat)) {
                 await message.reply('⚠️ הפקודה הזו עובדת רק בקבוצות.');
@@ -987,6 +1024,7 @@ client.on('message', async (message) => {
             return;
         }
         
+        // 4. ביטול תזמון
         if (isCommand(msgBody, 'בטל תזמון')) {
             scheduleConfig = {
                 enabled: false,
@@ -1005,6 +1043,7 @@ client.on('message', async (message) => {
             return;
         }
         
+        // 5. הצגת תזמון
         if (isCommand(msgBody, 'תזמון')) {
             if (!scheduleConfig.enabled || !scheduleConfig.closeTime || !scheduleConfig.openTime) {
                 await message.reply('❌ אין תזמון פעיל כרגע.');
@@ -1020,46 +1059,11 @@ client.on('message', async (message) => {
             return;
         }
         
-        // ====== אנטי-ספאם (בקבוצות מנוהלות) ======
-        if (isGroupChat(chat) && !msgBody.startsWith(prefix)) {
-            const groupId = chat.id._serialized;
-            
-            if (GROUPS_LIST[groupId]) {
-                const spamCheck = checkSpam(senderId, groupId);
-                
-                if (spamCheck.isSpam) {
-                    await message.reply(spamCheck.message);
-                    
-                    if (spamCheck.shouldKick) {
-                        try {
-                            await chat.removeParticipants([senderId]);
-                            logMessage(`🚫 ${senderId} הוסר מהקבוצה (3 אזהרות)`);
-                            
-                            try {
-                                const contact = await message.getContact();
-                                await contact.sendMessage(
-                                    `🚫 *הוסרת מהקבוצה*\n\n` +
-                                    `קיבלת 3 אזהרות על הצפה בקבוצה והוסרת אוטומטית.\n` +
-                                    `📌 כדי לחזור, פנה לאחד המנהלים:\n` +
-                                    `📞 +972 53-279-6337`
-                                );
-                                logMessage(`📩 נשלחה הודעה פרטית ל-${senderId}`);
-                            } catch (e) {
-                                logMessage(`❌ שגיאה בשליחת הודעה פרטית: ${e}`);
-                            }
-                            
-                            warningTracker.delete(`${groupId}_${senderId}`);
-                        } catch (error) {
-                            logMessage(`❌ שגיאה בהסרה: ${error}`);
-                            await message.reply('❌ שגיאה בהרחקת המשתמש. וודא שהבוט הוא אדמין בקבוצה.');
-                        }
-                    }
-                    return;
-                }
-            }
-        }
-        
+        // ============================================================
+        // ====== פקודה לא מוכרת ======
+        // ============================================================
         if (msgBody.startsWith(prefix) || isCommand(msgBody, '')) {
+            // התעלם מפקודות לא מוכרות
             return;
         }
         
@@ -1091,7 +1095,6 @@ console.log(`   👥 מנהלים: ${ADMINS_LIST.join(', ')}`);
 console.log(`   📌 קבוצות מנוהלות: ${Object.keys(GROUPS_LIST).length}`);
 console.log(`   📝 לוגים: ${CONFIG.LOGS.ENABLED ? 'מופעלים' : 'כבויים'}`);
 console.log(`   ⏰ תזמון: ${scheduleConfig.enabled ? 'פעיל' : 'לא פעיל'}`);
-console.log(`   💻 מערכת: ${process.platform}`);
 console.log('   🆔 שלח "מי אני" כדי לבדוק את המזהה שלך');
 console.log('   🆔 שלח "מזהה קבוצה" כדי לבדוק את מזהה הקבוצה');
 console.log('   👑 שלח "הוסף מנהל @שם" כדי להוסיף מנהל חדש');
